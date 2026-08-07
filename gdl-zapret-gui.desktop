@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=gdl-zapret-gui
+Name[ru]=gdl-zapret-gui
+Comment=GUI для обхода замедления YouTube и Discord
+Comment[ru]=GUI для обхода замедления YouTube и Discord
+Exec=gdl-zapret-gui
+Icon=org.kde.knights
+Terminal=false
+Categories=Network;Utility;
+Keywords=zapret;nfqws;youtube;discord;bypass;
+StartupNotify=true
