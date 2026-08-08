@@ -1,10 +1,10 @@
 from PySide6.QtCore import QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
+    QHBoxLayout,
     QMainWindow,
     QMessageBox,
     QProgressBar,
-    QPushButton,
     QSizePolicy,
     QSpacerItem,
     QVBoxLayout,
@@ -16,7 +16,8 @@ from ..client import DaemonClient, DaemonError
 from ..privileged import Elevation
 from .main_menu import build_menu
 from .settings_dialog import SettingsDialog
-from .widgets import LogPanel
+from .update_dialog import UpdateDialog
+from .widgets import LogPanel, RoundButton
 from .worker import TaskThread
 
 class MainWindow(QMainWindow):
@@ -49,38 +50,49 @@ class MainWindow(QMainWindow):
         central = QWidget()
         root = QVBoxLayout(central)
 
-        self.start_btn = QPushButton("Запустить")
-        self.start_btn.setMinimumHeight(56)
+        self.start_btn = RoundButton()
         self.start_btn.clicked.connect(self._toggle)
+
+        self._btn_row = QHBoxLayout()
+        self._btn_row.addWidget(self.start_btn)
+        self._btn_wrapper = QWidget()
+        self._btn_wrapper.setLayout(self._btn_row)
 
         self.log_panel = LogPanel()
         self.log_panel.clear_requested.connect(self._clear_log)
+        self.log_panel.toggle_requested.connect(self._toggle)
 
         self._spacer_top = QSpacerItem(0, 50, QSizePolicy.Minimum, QSizePolicy.Fixed)
         self._spacer_bottom = QSpacerItem(0, 50, QSizePolicy.Minimum, QSizePolicy.Fixed)
+        self._spacer_btn_bottom = QSpacerItem(0, 0, QSizePolicy.Minimum, QSizePolicy.Fixed)
 
         self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 0)  # бесконечный режим
+        self.progress_bar.setRange(0, 0)
         self.progress_bar.setTextVisible(False)
         self.progress_bar.setFixedHeight(4)
+        self.progress_bar.setMaximumWidth(120)
         self.progress_bar.setVisible(False)
 
         root.addItem(self._spacer_top)
-        root.addWidget(self.start_btn)
+        root.addWidget(self._btn_wrapper)
+        root.addItem(self._spacer_btn_bottom)
         root.addItem(self._spacer_bottom)
         root.addWidget(self.log_panel, 1)
-        root.addWidget(self.progress_bar)
         self._root_layout = root
         self.setCentralWidget(central)
         self.statusBar().showMessage("")
+        self.statusBar().addPermanentWidget(self.progress_bar)
 
         show_log = self.config.get("show_log", False)
         self.log_panel.setVisible(show_log)
+        self._btn_wrapper.setVisible(not show_log)
         self._set_spacers_visible(not show_log)
+        self._set_btn_mode(show_log)
         if show_log:
             self.setMinimumSize(640, 520)
         else:
-            self.setMinimumSize(640, 200)
+            self.setMinimumSize(360, 460)
+            self.resize(420, 460)
 
     def _toggle(self):
         if self._busy():
@@ -147,11 +159,11 @@ class MainWindow(QMainWindow):
         else:
             fn = lambda: autostart.install_service(self.elev, client_paths=self.paths)
         self.act_service.setEnabled(False)
-        self.progress_bar.setVisible(True)
+        self._set_progress(True)
         task = TaskThread(fn)
 
         def _done(result):
-            self.progress_bar.setVisible(False)
+            self._set_progress(False)
             ok, out = result
             self._refresh_status()
             if not ok:
@@ -160,7 +172,7 @@ class MainWindow(QMainWindow):
                 self._start()
 
         def _failed(msg):
-            self.progress_bar.setVisible(False)
+            self._set_progress(False)
             self._refresh_status()
             QMessageBox.critical(self, "Ошибка", msg)
 
@@ -168,6 +180,10 @@ class MainWindow(QMainWindow):
         task.failed.connect(_failed)
         self._svc_task = task
         task.start()
+
+    def _check_updates(self):
+        dlg = UpdateDialog(self)
+        dlg.exec()
 
     def _about(self):
         QMessageBox.about(
@@ -189,7 +205,7 @@ class MainWindow(QMainWindow):
     def _set_busy(self, busy):
         self.start_btn.setEnabled(not busy)
         self.act_toggle.setEnabled(not busy)
-        self.progress_bar.setVisible(busy)
+        self._set_progress(busy)
 
     def _run_task(self, fn):
         self._set_busy(True)
@@ -214,20 +230,37 @@ class MainWindow(QMainWindow):
         self._task = task
         task.start()
 
+    def _set_progress(self, visible: bool):
+        self.progress_bar.setVisible(visible)
+
     def _set_spacers_visible(self, visible: bool):
         size = 50 if visible else 0
         self._spacer_top.changeSize(0, size, QSizePolicy.Minimum, QSizePolicy.Fixed)
         self._spacer_bottom.changeSize(0, size, QSizePolicy.Minimum, QSizePolicy.Fixed)
         self._root_layout.invalidate()
 
+    def _set_btn_mode(self, log_visible: bool):
+        for i in reversed(range(self._btn_row.count())):
+            item = self._btn_row.itemAt(i)
+            if item and item.spacerItem():
+                self._btn_row.removeItem(item)
+
+        if not log_visible:
+            self._btn_row.insertStretch(0, 1)
+            self._btn_row.addStretch(1)
+
+        self._root_layout.invalidate()
+
     def _toggle_log(self, checked: bool):
         self.log_panel.setVisible(checked)
+        self._btn_wrapper.setVisible(not checked)
         self._set_spacers_visible(not checked)
+        self._set_btn_mode(checked)
         if checked:
             self.setMinimumSize(640, 520)
         else:
-            self.setMinimumSize(640, 100)
-            self.resize(self.width(), self.minimumHeight())
+            self.setMinimumSize(360, 460)
+            self.resize(420, 460)
         self.config["show_log"] = checked
         self.config.save()
 
@@ -249,8 +282,8 @@ class MainWindow(QMainWindow):
         alive = self.client.daemon_alive()
         running = self.client.is_running() if alive else False
 
-        self.start_btn.setText("Остановить" if running else "Запустить")
-        self.start_btn.setIcon(QIcon.fromTheme("media-playback-stop" if running else "media-playback-start"))
+        self.start_btn.setRunning(running)
+        self.log_panel.set_running(running)
         self.act_toggle.setText("Остановить" if running else "Запустить")
         self.act_toggle.setIcon(QIcon.fromTheme("media-playback-stop" if running else "media-playback-start"))
 

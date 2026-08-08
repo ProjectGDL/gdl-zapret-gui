@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFormLayout,
     QLabel,
+    QPlainTextEdit,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -14,6 +15,31 @@ from .. import firewall, strategy
 from ..client import DaemonClient
 from .common import system_interfaces
 from .wizard import DepsWidget
+
+
+class _UserListTab(QWidget):
+    def __init__(self, file_path, parent=None):
+        super().__init__(parent)
+        self._path = file_path
+
+        self._editor = QPlainTextEdit()
+        self._editor.setPlaceholderText("# по одному домену или IP на строку")
+
+        if file_path.exists():
+            self._editor.setPlainText(file_path.read_text(encoding="utf-8"))
+
+        hint = QLabel(f"Файл: {file_path}")
+        hint.setWordWrap(True)
+
+        lay = QVBoxLayout(self)
+        lay.addWidget(hint)
+        lay.addWidget(self._editor)
+
+    def save(self):
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self._path, "w", encoding="utf-8") as fh:
+            fh.write(self._editor.toPlainText())
+
 
 class SettingsDialog(QDialog):
     def __init__(self, paths, config, parent=None):
@@ -42,11 +68,6 @@ class SettingsDialog(QDialog):
         if sidx >= 0:
             self.strategy.setCurrentIndex(sidx)
 
-        tab_main = QWidget()
-        form_main = QFormLayout(tab_main)
-        form_main.addRow("Сетевой интерфейс:", self.interface)
-        form_main.addRow("Стратегия:", self.strategy)
-
         self.gamefilter_tcp = QCheckBox("GameFilter TCP (порты 1024-65535)")
         self.gamefilter_tcp.setChecked(bool(config.get("gamefiltertcp")))
         self.gamefilter_udp = QCheckBox("GameFilter UDP (порты 1024-65535)")
@@ -58,29 +79,32 @@ class SettingsDialog(QDialog):
             self.backend.addItem(b, b)
         self.backend.setCurrentIndex(max(0, self.backend.findData(config.get("firewall_backend", "auto"))))
 
-        self.autostart = QCheckBox("Запускать zapret автоматически вместе с сервисом zapretd")
+        self.autostart = QCheckBox()
         self.autostart.setChecked(bool(config.get("autostart_zapret")))
 
-        daemon_status = "работает" if daemon_alive else "не запущен"
-        info = QLabel(f"Демон zapretd: {daemon_status}\nДанные клиента: {paths.base}")
-        info.setWordWrap(True)
-
-        tab_adv = QWidget()
-        form_adv = QFormLayout(tab_adv)
-        form_adv.addRow("GameFilter TCP:", self.gamefilter_tcp)
-        form_adv.addRow("GameFilter UDP:", self.gamefilter_udp)
-        form_adv.addRow("Бэкенд файрвола:", self.backend)
-        form_adv.addRow("Автозапуск:", self.autostart)
-        form_adv.addRow("", info)
+        tab_main = QWidget()
+        form_main = QFormLayout(tab_main)
+        form_main.addRow("Сетевой интерфейс:", self.interface)
+        form_main.addRow("Стратегия:", self.strategy)
+        form_main.addRow("GameFilter TCP:", self.gamefilter_tcp)
+        form_main.addRow("GameFilter UDP:", self.gamefilter_udp)
+        form_main.addRow("Бэкенд файрвола:", self.backend)
+        form_main.addRow("Автозапуск:", self.autostart)
 
         tab_deps = QWidget()
         lay_deps = QVBoxLayout(tab_deps)
         lay_deps.addWidget(DepsWidget(paths, config))
 
+        self._list_general = _UserListTab(paths.user_lists_dir / "list-general-user.txt")
+        self._list_exclude = _UserListTab(paths.user_lists_dir / "list-exclude-user.txt")
+        self._list_ipset = _UserListTab(paths.user_lists_dir / "ipset-exclude-user.txt")
+
         tabs = QTabWidget()
         tabs.addTab(tab_main, "Основные")
-        tabs.addTab(tab_adv, "Дополнительно")
         tabs.addTab(tab_deps, "Компоненты")
+        tabs.addTab(self._list_general, "Свой список")
+        tabs.addTab(self._list_exclude, "Список исключений")
+        tabs.addTab(self._list_ipset, "Исключения IP")
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)
@@ -102,4 +126,8 @@ class SettingsDialog(QDialog):
             }
         )
         self.config.save()
+        self._list_general.save()
+        self._list_exclude.save()
+        self._list_ipset.save()
+        DaemonClient().sync_lists()
         super().accept()

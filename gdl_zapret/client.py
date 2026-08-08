@@ -97,6 +97,12 @@ class DaemonClient:
         except (DaemonUnavailable, DaemonError):
             return []
 
+    def sync_lists(self) -> bool:
+        try:
+            return _post("/sync-lists").get("ok", False)
+        except (DaemonUnavailable, DaemonError):
+            return False
+
     def clear_log(self) -> bool:
         try:
             return _post("/log/clear").get("ok", False)

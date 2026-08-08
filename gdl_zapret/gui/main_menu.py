@@ -1,14 +1,6 @@
 from PySide6.QtGui import QAction, QKeySequence
 
 def build_menu(window):
-    """Строит меню главного окна.
-
-    Ожидает, что `window` предоставляет обработчики:
-    _toggle, _open_settings, close, _toggle_service, _about, _toggle_log
-    и config с ключом "show_log".
-
-    Создаёт на window атрибуты: act_toggle, act_service, act_show_log.
-    """
     menubar = window.menuBar()
 
     m_app = menubar.addMenu("&Приложение")
@@ -33,6 +25,10 @@ def build_menu(window):
     m_srv.addAction(window.act_service)
 
     m_help = menubar.addMenu("&Справка")
+    act_update = QAction("Проверить обновления", window)
+    act_update.triggered.connect(window._check_updates)
+    m_help.addAction(act_update)
+    m_help.addSeparator()
     act_about = QAction("О программе", window)
     act_about.triggered.connect(window._about)
     m_help.addAction(act_about)
