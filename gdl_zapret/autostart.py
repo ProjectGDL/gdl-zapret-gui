@@ -20,8 +20,7 @@ def make_unit(data_dir: str | None = None) -> str:
     extra = f" --data-dir {shq(data_dir)}" if data_dir else ""
     return (
         "[Unit]\n"
-        "Description=zapretd обход замедления YouTube и Discord через zapret/nfqws
-\n"
+        "Description=zapretd обход замедления YouTube и Discord через zapret/nfqws\n"
         "After=network-online.target\n"
         "Wants=network-online.target\n"
         "\n"
