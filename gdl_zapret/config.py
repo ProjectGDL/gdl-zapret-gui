@@ -12,6 +12,7 @@ DEFAULTS = {
     "strategies_version": MAIN_REPO_REV,
     "nfqws_version_label": "v72.9",
     "autostart_zapret": False,
+    "show_log": False,
 }
 
 class Config:
