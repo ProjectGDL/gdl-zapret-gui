@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -14,13 +12,8 @@ from PySide6.QtWidgets import (
 
 from .. import firewall, strategy
 from ..client import DaemonClient
+from .common import system_interfaces
 from .wizard import DepsWidget
-
-def system_interfaces() -> list:
-    net = Path("/sys/class/net")
-    if net.is_dir():
-        return sorted(p.name for p in net.iterdir())
-    return []
 
 class SettingsDialog(QDialog):
     def __init__(self, paths, config, parent=None):

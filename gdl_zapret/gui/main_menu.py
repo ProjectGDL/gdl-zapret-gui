@@ -1,0 +1,45 @@
+from PySide6.QtGui import QAction, QKeySequence
+
+def build_menu(window):
+    """Строит меню главного окна.
+
+    Ожидает, что `window` предоставляет обработчики:
+    _toggle, _open_settings, close, _toggle_service, _about, _toggle_log
+    и config с ключом "show_log".
+
+    Создаёт на window атрибуты: act_toggle, act_service, act_show_log.
+    """
+    menubar = window.menuBar()
+
+    m_app = menubar.addMenu("&Приложение")
+    window.act_toggle = QAction("Запустить", window)
+    window.act_toggle.setShortcut(QKeySequence("Ctrl+R"))
+    window.act_toggle.triggered.connect(window._toggle)
+    m_app.addAction(window.act_toggle)
+    m_app.addSeparator()
+    act_settings = QAction("Настройки...", window)
+    act_settings.setShortcut(QKeySequence("Ctrl+,"))
+    act_settings.triggered.connect(window._open_settings)
+    m_app.addAction(act_settings)
+    m_app.addSeparator()
+    act_quit = QAction("Выход", window)
+    act_quit.setShortcut(QKeySequence.Quit)
+    act_quit.triggered.connect(window.close)
+    m_app.addAction(act_quit)
+
+    m_srv = menubar.addMenu("&Сервис")
+    window.act_service = QAction("Установить сервис", window)
+    window.act_service.triggered.connect(window._toggle_service)
+    m_srv.addAction(window.act_service)
+
+    m_help = menubar.addMenu("&Справка")
+    act_about = QAction("О программе", window)
+    act_about.triggered.connect(window._about)
+    m_help.addAction(act_about)
+
+    m_view = menubar.addMenu("&Вид")
+    window.act_show_log = QAction("Показать лог", window)
+    window.act_show_log.setCheckable(True)
+    window.act_show_log.setChecked(window.config.get("show_log", False))
+    window.act_show_log.triggered.connect(window._toggle_log)
+    m_view.addAction(window.act_show_log)

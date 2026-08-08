@@ -1,11 +1,8 @@
 from PySide6.QtCore import QTimer
-from PySide6.QtGui import QAction, QFont, QIcon, QKeySequence
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
-    QApplication,
-    QHBoxLayout,
     QMainWindow,
     QMessageBox,
-    QPlainTextEdit,
     QProgressBar,
     QPushButton,
     QSizePolicy,
@@ -15,11 +12,12 @@ from PySide6.QtWidgets import (
 )
 
 from .. import __version__, autostart, downloader
-from ..client import DaemonClient, DaemonError, DaemonUnavailable
+from ..client import DaemonClient, DaemonError
 from ..privileged import Elevation
+from .main_menu import build_menu
 from .settings_dialog import SettingsDialog
+from .widgets import LogPanel
 from .worker import TaskThread
-from .wizard import FirstRunWizard
 
 class MainWindow(QMainWindow):
     def __init__(self, paths, config):
@@ -35,7 +33,7 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(640, 520)
 
         self._build_ui()
-        self._build_menu()
+        build_menu(self)
         self._refresh_status()
         self._poll_log()
 
@@ -55,20 +53,8 @@ class MainWindow(QMainWindow):
         self.start_btn.setMinimumHeight(56)
         self.start_btn.clicked.connect(self._toggle)
 
-        self.log_view = QPlainTextEdit()
-        self.log_view.setReadOnly(True)
-        self.log_view.setFont(QFont("monospace", 9))
-        self.log_view.setMaximumBlockCount(5000)
-
-        self.clear_btn = QPushButton("Очистить лог")
-        self.clear_btn.clicked.connect(self._clear_log)
-
-        log_row = QHBoxLayout()
-        log_row.addStretch(1)
-        log_row.addWidget(self.clear_btn)
-
-        self.log_row_widget = QWidget()
-        self.log_row_widget.setLayout(log_row)
+        self.log_panel = LogPanel()
+        self.log_panel.clear_requested.connect(self._clear_log)
 
         self._spacer_top = QSpacerItem(0, 50, QSizePolicy.Minimum, QSizePolicy.Fixed)
         self._spacer_bottom = QSpacerItem(0, 50, QSizePolicy.Minimum, QSizePolicy.Fixed)
@@ -82,57 +68,19 @@ class MainWindow(QMainWindow):
         root.addItem(self._spacer_top)
         root.addWidget(self.start_btn)
         root.addItem(self._spacer_bottom)
-        root.addWidget(self.log_view, 1)
-        root.addWidget(self.log_row_widget)
+        root.addWidget(self.log_panel, 1)
         root.addWidget(self.progress_bar)
         self._root_layout = root
         self.setCentralWidget(central)
         self.statusBar().showMessage("")
 
         show_log = self.config.get("show_log", False)
-        self.log_view.setVisible(show_log)
-        self.log_row_widget.setVisible(show_log)
+        self.log_panel.setVisible(show_log)
         self._set_spacers_visible(not show_log)
         if show_log:
             self.setMinimumSize(640, 520)
         else:
             self.setMinimumSize(640, 200)
-
-    def _build_menu(self):
-        menubar = self.menuBar()
-
-        m_app = menubar.addMenu("&Приложение")
-        self.act_toggle = QAction("Запустить", self)
-        self.act_toggle.setShortcut(QKeySequence("Ctrl+R"))
-        self.act_toggle.triggered.connect(self._toggle)
-        m_app.addAction(self.act_toggle)
-        m_app.addSeparator()
-        act_settings = QAction("Настройки...", self)
-        act_settings.setShortcut(QKeySequence("Ctrl+,"))
-        act_settings.triggered.connect(self._open_settings)
-        m_app.addAction(act_settings)
-        m_app.addSeparator()
-        act_quit = QAction("Выход", self)
-        act_quit.setShortcut(QKeySequence.Quit)
-        act_quit.triggered.connect(self.close)
-        m_app.addAction(act_quit)
-
-        m_srv = menubar.addMenu("&Сервис")
-        self.act_service = QAction("Установить сервис", self)
-        self.act_service.triggered.connect(self._toggle_service)
-        m_srv.addAction(self.act_service)
-
-        m_help = menubar.addMenu("&Справка")
-        act_about = QAction("О программе", self)
-        act_about.triggered.connect(self._about)
-        m_help.addAction(act_about)
-
-        m_view = menubar.addMenu("&Вид")
-        self.act_show_log = QAction("Показать лог", self)
-        self.act_show_log.setCheckable(True)
-        self.act_show_log.setChecked(self.config.get("show_log", False))
-        self.act_show_log.triggered.connect(self._toggle_log)
-        m_view.addAction(self.act_show_log)
 
     def _toggle(self):
         if self._busy():
@@ -273,8 +221,7 @@ class MainWindow(QMainWindow):
         self._root_layout.invalidate()
 
     def _toggle_log(self, checked: bool):
-        self.log_view.setVisible(checked)
-        self.log_row_widget.setVisible(checked)
+        self.log_panel.setVisible(checked)
         self._set_spacers_visible(not checked)
         if checked:
             self.setMinimumSize(640, 520)
@@ -291,16 +238,12 @@ class MainWindow(QMainWindow):
         if lines == self._last_log_lines:
             return
         self._last_log_lines = lines
-        sb = self.log_view.verticalScrollBar()
-        at_bottom = sb.value() >= sb.maximum() - 4
-        self.log_view.setPlainText("\n".join(lines))
-        if at_bottom:
-            sb.setValue(sb.maximum())
+        self.log_panel.set_lines(lines)
 
     def _clear_log(self):
         self.client.clear_log()
         self._last_log_lines = None
-        self.log_view.clear()
+        self.log_panel.clear()
 
     def _refresh_status(self):
         alive = self.client.daemon_alive()
@@ -338,32 +281,3 @@ class MainWindow(QMainWindow):
                 if self._task:
                     self._task.wait(15000)
         event.accept()
-
-def run_app(paths, config):
-    app = QApplication.instance() or QApplication([])
-    app.setApplicationName("gdl-zapret-gui")
-    window = MainWindow(paths, config)
-
-    first_run = not paths.config_file.exists() or not downloader.has_dependencies(paths)
-    if first_run:
-        wizard = FirstRunWizard(paths, config, window)
-        if wizard.exec() != FirstRunWizard.Accepted:
-            return 0
-        config.update(wizard.result_config())
-        config.save()
-        client = DaemonClient()
-        if wizard.summary_page.start_now.isChecked():
-            if not client.daemon_alive():
-                ok, out = autostart.install_service(
-                    window.elev, client_paths=paths
-                )
-                if not ok:
-                    QMessageBox.critical(
-                        window,
-                        "Ошибка установки сервиса",
-                        out.strip() or "Не удалось установить zapretd.",
-                    )
-            if client.daemon_alive():
-                window._start()
-    window.show()
-    return app.exec()

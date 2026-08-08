@@ -46,7 +46,7 @@ def run_status_mode():
 def run_gui_mode():
     from gdl_zapret.app_paths import ClientPaths
     from gdl_zapret.config import Config
-    from gdl_zapret.gui.main_window import run_app
+    from gdl_zapret.gui.app import run_app
 
     paths = ClientPaths()
     config = Config(paths).load()
