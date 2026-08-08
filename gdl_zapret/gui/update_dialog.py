@@ -73,7 +73,7 @@ class UpdateDialog(QDialog):
             return
         self._label.setText(
             "Обновление запущено в терминале.\n\n"
-            "После завершения нажмите «Перезапустить приложение»."
+            "После завершения перезапустите приложение."
         )
         self._update_btn.setVisible(False)
         self._restart_btn.setVisible(True)
