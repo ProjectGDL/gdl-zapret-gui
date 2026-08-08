@@ -66,7 +66,7 @@ class Updater:
                 return True, f"Доступно {n} новых коммитов (git)."
             except Exception as e:
                 return True, f"Git-репозиторий найден, статус недоступен: {e}"
-        return False, "Неизвестный режим."
+        return False, "Неизвестный режим"
 
     def build_terminal_command(self) -> list[str] | None:
         mode = self.detect_mode()
