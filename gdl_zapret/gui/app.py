@@ -1,7 +1,6 @@
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication
 
-from .. import autostart, downloader
-from ..client import DaemonClient
+from .. import downloader
 from .main_window import MainWindow
 from .wizard import FirstRunWizard
 
@@ -17,19 +16,8 @@ def run_app(paths, config):
             return 0
         config.update(wizard.result_config())
         config.save()
-        client = DaemonClient()
-        if wizard.summary_page.start_now.isChecked():
-            if not client.daemon_alive():
-                ok, out = autostart.install_service(
-                    window.elev, client_paths=paths
-                )
-                if not ok:
-                    QMessageBox.critical(
-                        window,
-                        "Ошибка установки сервиса",
-                        out.strip() or "Не удалось установить zapretd.",
-                    )
-            if client.daemon_alive():
-                window._start()
+        window._start_after_show = wizard.summary_page.start_now.isChecked()
+        window._first_run = True
+
     window.show()
     return app.exec()

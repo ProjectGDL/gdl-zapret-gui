@@ -99,9 +99,17 @@ class DaemonClient:
         except (DaemonUnavailable, DaemonError):
             return []
 
-    def sync_lists(self) -> bool:
+    def sync_lists(self, user_lists_dir=None) -> bool:
         try:
-            return _post("/sync-lists").get("ok", False)
+            body = {}
+            if user_lists_dir is not None:
+                from pathlib import Path
+                p = Path(user_lists_dir)
+                if p.is_dir():
+                    for f in p.iterdir():
+                        if f.is_file():
+                            body[f.name] = f.read_text(encoding="utf-8", errors="replace")
+            return _post("/sync-lists", body).get("ok", False)
         except (DaemonUnavailable, DaemonError):
             return False
 

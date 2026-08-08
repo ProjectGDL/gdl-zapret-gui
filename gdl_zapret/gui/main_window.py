@@ -1,4 +1,4 @@
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QObject, QThread, QTimer, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -20,6 +20,33 @@ from .update_dialog import UpdateDialog
 from .widgets import LogPanel, RoundButton
 from .worker import TaskThread
 
+class _StatusPoller(QObject):
+    result = Signal(bool, bool)
+
+    def __init__(self, client):
+        super().__init__()
+        self._client = client
+
+    def poll(self):
+        alive = self._client.daemon_alive()
+        running = self._client.is_running() if alive else False
+        self.result.emit(alive, running)
+
+
+class _LogPoller(QObject):
+    result = Signal(object)
+
+    def __init__(self, client):
+        super().__init__()
+        self._client = client
+
+    def poll(self):
+        if not self._client.daemon_alive():
+            self.result.emit(None)
+            return
+        self.result.emit(self._client.get_log())
+
+
 class MainWindow(QMainWindow):
     def __init__(self, paths, config):
         super().__init__()
@@ -29,22 +56,38 @@ class MainWindow(QMainWindow):
         self.client = DaemonClient()
         self._task = None
         self._last_log_lines = []
+        self._start_after_show = False
+        self._first_run = False
+        self._daemon_alive = False
+        self._daemon_running = False
 
         self.setWindowTitle("gdl-zapret-gui")
         self.setMinimumSize(640, 520)
 
+        self._timers_started = False
+
         self._build_ui()
         build_menu(self)
-        self._refresh_status()
-        self._poll_log()
 
-        self._status_timer = QTimer(self)
-        self._status_timer.timeout.connect(self._refresh_status)
-        self._status_timer.start(2000)
+        self._status_thread = QThread(self)
+        self._status_poller = _StatusPoller(self.client)
+        self._status_poller.moveToThread(self._status_thread)
+        self._status_poller.result.connect(self._on_status)
+        self._status_timer = QTimer()
+        self._status_timer.setInterval(2000)
+        self._status_timer.timeout.connect(self._status_poller.poll)
+        self._status_timer.moveToThread(self._status_thread)
+        self._status_thread.started.connect(self._status_timer.start)
 
-        self._log_timer = QTimer(self)
-        self._log_timer.timeout.connect(self._poll_log)
-        self._log_timer.start(1000)
+        self._log_thread = QThread(self)
+        self._log_poller = _LogPoller(self.client)
+        self._log_poller.moveToThread(self._log_thread)
+        self._log_poller.result.connect(self._on_log)
+        self._log_timer = QTimer()
+        self._log_timer.setInterval(1000)
+        self._log_timer.timeout.connect(self._log_poller.poll)
+        self._log_timer.moveToThread(self._log_thread)
+        self._log_thread.started.connect(self._log_timer.start)
 
     def _build_ui(self):
         central = QWidget()
@@ -97,10 +140,10 @@ class MainWindow(QMainWindow):
     def _toggle(self):
         if self._busy():
             return
-        if not self.client.daemon_alive():
+        if not self._daemon_alive:
             self._toggle_service(then_start=True)
             return
-        if self.client.is_running():
+        if self._daemon_running:
             self._stop()
         else:
             self._start()
@@ -135,14 +178,12 @@ class MainWindow(QMainWindow):
     def _open_settings(self):
         dlg = SettingsDialog(self.paths, self.config, self)
         if dlg.exec():
-            if self.client.daemon_alive():
-                if self.client.is_running():
+            if self._daemon_alive:
+                if self._daemon_running:
                     self._run_task(lambda: self._do_restart(dict(self.config.data)))
                 else:
-                    self.client.set_config(dict(self.config.data))
-                    self._refresh_status()
-            else:
-                self._refresh_status()
+                    cfg = dict(self.config.data)
+                    self._run_task(lambda: self.client.set_config(cfg) and None or (True, ""))
 
     def _do_restart(self, cfg) -> tuple[bool, str]:
         ok, msg = self.client.stop()
@@ -265,22 +306,29 @@ class MainWindow(QMainWindow):
         self.config.save()
 
     def _poll_log(self):
-        if not self.client.daemon_alive():
+        self._log_poller.poll()
+
+    def _clear_log(self):
+        self._last_log_lines = None
+        self.log_panel.clear()
+        self._run_task(lambda: (self.client.clear_log(), (True, ""))[1])
+
+    def _on_status(self, alive: bool, running: bool):
+        self._daemon_alive = alive
+        self._daemon_running = running
+        self._refresh_status()
+
+    def _on_log(self, lines):
+        if lines is None:
             return
-        lines = self.client.get_log()
         if lines == self._last_log_lines:
             return
         self._last_log_lines = lines
         self.log_panel.set_lines(lines)
 
-    def _clear_log(self):
-        self.client.clear_log()
-        self._last_log_lines = None
-        self.log_panel.clear()
-
     def _refresh_status(self):
-        alive = self.client.daemon_alive()
-        running = self.client.is_running() if alive else False
+        alive = self._daemon_alive
+        running = self._daemon_running
 
         self.start_btn.setRunning(running)
         self.log_panel.set_running(running)
@@ -302,8 +350,43 @@ class MainWindow(QMainWindow):
                 "Сервис не установлен. Установите его через Сервис → Установить сервис zapretd."
             )
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._timers_started:
+            self._timers_started = True
+            self._status_thread.start()
+            self._log_thread.start()
+            if self._start_after_show:
+                self._start_after_show = False
+                QTimer.singleShot(0, self._start_after_wizard)
+
+    def _start_after_wizard(self):
+        def _do():
+            if self._first_run:
+                try:
+                    self.client.stop()
+                except Exception:
+                    pass
+                if autostart.service_installed():
+                    autostart.remove_service(self.elev)
+
+            ok, out = autostart.install_service(self.elev, client_paths=self.paths)
+            if not ok:
+                raise RuntimeError(out.strip() or "Не удалось установить zapretd.")
+            if self.client.daemon_alive():
+                ok, msg = self.client.start(dict(self.config.data))
+                if not ok:
+                    raise RuntimeError(msg)
+            return None, ""
+
+        self._run_task(_do)
+
     def closeEvent(self, event):
-        if self.client.daemon_alive() and self.client.is_running():
+        for thread in (self._status_thread, self._log_thread):
+            thread.quit()
+            thread.wait(2000)
+
+        if self._daemon_alive and self._daemon_running:
             ret = QMessageBox.question(
                 self,
                 "Остановить?",

@@ -50,18 +50,27 @@ def install_service(
     if client_paths is not None:
         src_base = shq(str(client_paths.base))
         dst_base = shq(str(DAEMON_DATA_DIR))
+        user_list_files = ["list-general-user.txt", "list-exclude-user.txt", "ipset-exclude-user.txt"]
+        user_lists_copy = ""
+        for fname in user_list_files:
+            src = shq(str(client_paths.user_lists_dir / fname))
+            dst = shq(str(DAEMON_DATA_DIR / "user-lists" / fname))
+            user_lists_copy += (
+                f"[ -f {src} ] && [ ! -s {dst} ] && cp {src} {dst} 2>/dev/null || true\n"
+            )
         copy_block = (
             f"mkdir -p {dst_base}\n"
+            f"mkdir -p {dst_base}/user-lists\n"
             f"cp -a {shq(str(client_paths.nfqws_dir))} {dst_base}/ 2>/dev/null || true\n"
             f"cp -a {shq(str(client_paths.strategies_dir))} {dst_base}/ 2>/dev/null || true\n"
             f"cp -a {shq(str(client_paths.custom_strategies_dir))} {dst_base}/ 2>/dev/null || true\n"
-            f"cp -a {shq(str(client_paths.user_lists_dir))} {dst_base}/ 2>/dev/null || true\n"
-            f"[ -f {shq(str(client_paths.config_file))} ] && "
+            + user_lists_copy
+            + f"[ -f {shq(str(client_paths.config_file))} ] && "
             f"[ ! -f {dst_base}/config.json ] && "
             f"cp {shq(str(client_paths.config_file))} {dst_base}/config.json || true\n"
             f"chmod -R a+rX {dst_base}/strategies 2>/dev/null || true\n"
             f"chmod -R a+rX {dst_base}/user-lists 2>/dev/null || true\n"
-            f"chmod +x {dst_base}/nfqws/nfqws 2>/dev/null || true\n"
+            f"chmod a+x {dst_base}/nfqws/nfqws 2>/dev/null || true\n"
         )
 
     script = (

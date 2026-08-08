@@ -60,7 +60,7 @@ class _State:
             return False, f"Стратегия «{sname}» не найдена"
 
         try:
-            parsed = strategy.parse_bat_file(spath, gt, gu)
+            parsed = strategy.parse_bat_file(spath, gt, gu, user_lists_dir=self.paths.user_lists_dir)
         except strategy.StrategyError as e:
             return False, str(e)
 
@@ -129,16 +129,7 @@ class _State:
             r = subprocess.run(["bash", "-c", fw_script], capture_output=True, text=True)
             if r.returncode != 0:
                 msgs.append("предупреждение при очистке firewall: " + (r.stderr or "").strip())
-        elif self.path == "/sync-lists":
-            try:
-                spath = strategy.get_strategy_path(_state.paths, _state.config.get("strategy", ""))
-                if spath:
-                    strategy.prepare_tmp_dirs(spath.parent)
-                self._send(200, _json({"ok": True}))
-            except Exception as e:
-                self._send(200, _json({"ok": False, "message": str(e)}))
-
-        else:
+            else:
                 msgs.append(f"firewall ({backend}) очищен")
 
         with self._open_log("a") as fh:
@@ -231,6 +222,19 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(200, _json({"ok": True}))
             except OSError as e:
                 self._send(200, _json({"ok": False, "message": str(e)}))
+
+        elif self.path == "/sync-lists":
+            if body:
+                try:
+                    _state.paths.user_lists_dir.mkdir(parents=True, exist_ok=True)
+                    for fname, content in body.items():
+                        fpath = _state.paths.user_lists_dir / fname
+                        fpath.write_text(content, encoding="utf-8")
+                    self._send(200, _json({"ok": True}))
+                except Exception as e:
+                    self._send(200, _json({"ok": False, "message": str(e)}))
+            else:
+                self._send(200, _json({"ok": True}))
 
         else:
             self._send(404, _json({"error": "not found"}))

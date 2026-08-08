@@ -8,7 +8,7 @@ from .app_paths import GAME_FILTER_OFF_PORTS, GAME_FILTER_PORTS
 
 _TMP_STRATS = Path("/tmp/gdlzstrats")
 
-def prepare_tmp_dirs(strategies_dir: Path) -> tuple[Path, Path]:
+def prepare_tmp_dirs(strategies_dir: Path, user_lists_dir: Path | None = None) -> tuple[Path, Path]:
     tmp_lists = _TMP_STRATS / "lists"
     tmp_bin = _TMP_STRATS / "bin"
     tmp_lists.mkdir(parents=True, exist_ok=True)
@@ -27,6 +27,19 @@ def prepare_tmp_dirs(strategies_dir: Path) -> tuple[Path, Path]:
             if not src.is_file():
                 continue
             dst = dst_dir / src.name
+            try:
+                if dst.exists():
+                    dst.unlink()
+                os.link(src, dst)
+            except OSError:
+                shutil.copy2(src, dst)
+            dst.chmod(0o644)
+
+    if user_lists_dir is not None and user_lists_dir.is_dir():
+        for src in user_lists_dir.iterdir():
+            if not src.is_file():
+                continue
+            dst = tmp_lists / src.name
             try:
                 if dst.exists():
                     dst.unlink()
@@ -104,13 +117,13 @@ def _replace_game_filters(content, tcp, udp):
 _WF_RE = re.compile(r"--wf-(tcp|udp)=([0-9,\-]+)")
 _WORKER_RE = re.compile(r"--filter-(tcp|udp)=([0-9,\-]+)\s+(?:[\s\S]*?--new|.*)")
 
-def parse_bat_file(path, gamefiltertcp=False, gamefilterudp=False) -> ParsedStrategy:
+def parse_bat_file(path, gamefiltertcp=False, gamefilterudp=False, user_lists_dir=None) -> ParsedStrategy:
     raw = Path(path).read_text(encoding="utf-8", errors="replace")
     content = raw.replace("\r", "")
     name = Path(path).name
 
     strategies_dir = Path(path).parent
-    tmp_lists, tmp_bin = prepare_tmp_dirs(strategies_dir)
+    tmp_lists, tmp_bin = prepare_tmp_dirs(strategies_dir, user_lists_dir)
     content = content.replace("%BIN%", str(tmp_bin) + "/").replace(
         "%LISTS%", str(tmp_lists) + "/"
     )

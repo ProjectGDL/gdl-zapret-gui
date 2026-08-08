@@ -1,3 +1,4 @@
+from PySide6.QtCore import QThread, Signal, QObject
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -41,6 +42,21 @@ class _UserListTab(QWidget):
             fh.write(self._editor.toPlainText())
 
 
+class _DataLoader(QObject):
+    ready = Signal(list, list)
+
+    def __init__(self, paths):
+        super().__init__()
+        self._paths = paths
+
+    def load(self):
+        client = DaemonClient()
+        alive = client.daemon_alive()
+        names = client.strategies() if alive else strategy.get_strategies(self._paths)
+        backends = client.backends() if alive else firewall.available_backends()
+        self.ready.emit(names, backends)
+
+
 class SettingsDialog(QDialog):
     def __init__(self, paths, config, parent=None):
         super().__init__(parent)
@@ -49,24 +65,17 @@ class SettingsDialog(QDialog):
         self.setWindowTitle("Настройки")
         self.setMinimumWidth(460)
 
-        client = DaemonClient()
-        daemon_alive = client.daemon_alive()
-
-        strategy_names = client.strategies() if daemon_alive else strategy.get_strategies(paths)
-        backends = client.backends() if daemon_alive else firewall.available_backends()
-
         self.interface = QComboBox()
         self.interface.addItem("any (весь трафик)", "any")
         for name in system_interfaces():
             self.interface.addItem(name, name)
-        self.interface.setCurrentIndex(max(0, self.interface.findData(config.get("interface", "any"))))
+        self.interface.setCurrentIndex(
+            max(0, self.interface.findData(config.get("interface", "any")))
+        )
 
         self.strategy = QComboBox()
-        for name in strategy_names:
-            self.strategy.addItem(name, name)
-        sidx = self.strategy.findData(config.get("strategy"))
-        if sidx >= 0:
-            self.strategy.setCurrentIndex(sidx)
+        self.strategy.addItem("загрузка…", None)
+        self.strategy.setEnabled(False)
 
         self.gamefilter_tcp = QCheckBox("GameFilter TCP (порты 1024-65535)")
         self.gamefilter_tcp.setChecked(bool(config.get("gamefiltertcp")))
@@ -75,9 +84,7 @@ class SettingsDialog(QDialog):
 
         self.backend = QComboBox()
         self.backend.addItem("auto (автоопределение)", "auto")
-        for b in backends:
-            self.backend.addItem(b, b)
-        self.backend.setCurrentIndex(max(0, self.backend.findData(config.get("firewall_backend", "auto"))))
+        self.backend.setEnabled(False)
 
         self.autostart = QCheckBox()
         self.autostart.setChecked(bool(config.get("autostart_zapret")))
@@ -114,7 +121,39 @@ class SettingsDialog(QDialog):
         layout.addWidget(tabs)
         layout.addWidget(buttons)
 
+        self._loader_thread = QThread(self)
+        self._loader = _DataLoader(paths)
+        self._loader.moveToThread(self._loader_thread)
+        self._loader.ready.connect(self._on_data)
+        self._loader_thread.started.connect(self._loader.load)
+        self._loader_thread.start()
+
+    def _on_data(self, strategy_names: list, backends: list):
+        self._loader_thread.quit()
+
+        self.strategy.clear()
+        for name in strategy_names:
+            self.strategy.addItem(name, name)
+        sidx = self.strategy.findData(self.config.get("strategy"))
+        if sidx >= 0:
+            self.strategy.setCurrentIndex(sidx)
+        self.strategy.setEnabled(True)
+
+        cur_backend = self.config.get("firewall_backend", "auto")
+        self.backend.clear()
+        self.backend.addItem("auto (автоопределение)", "auto")
+        for b in backends:
+            self.backend.addItem(b, b)
+        self.backend.setCurrentIndex(max(0, self.backend.findData(cur_backend)))
+        self.backend.setEnabled(True)
+
+    def _stop_loader(self):
+        if self._loader_thread.isRunning():
+            self._loader_thread.quit()
+            self._loader_thread.wait(3000)
+
     def accept(self):
+        self._stop_loader()
         self.config.update(
             {
                 "interface": self.interface.currentData(),
@@ -129,5 +168,14 @@ class SettingsDialog(QDialog):
         self._list_general.save()
         self._list_exclude.save()
         self._list_ipset.save()
-        DaemonClient().sync_lists()
+        user_lists_dir = self.paths.user_lists_dir
+        t = QThread()
+        t.started.connect(lambda: (DaemonClient().sync_lists(user_lists_dir), t.quit()))
+        t.finished.connect(t.deleteLater)
+        t.start()
         super().accept()
+
+    def reject(self):
+        self._stop_loader()
+        super().reject()
+
