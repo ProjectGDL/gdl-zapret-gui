@@ -1,3 +1,6 @@
+import os
+import sys
+
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
     QDialog,
@@ -7,6 +10,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from ..client import DaemonClient
 from ..updater import Updater
 
 
@@ -26,7 +30,7 @@ class UpdateDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Обновление")
-        self.setMinimumWidth(360)
+        self.setMinimumWidth(380)
         self.setWindowModality(Qt.ApplicationModal)
 
         self._updater = Updater()
@@ -39,12 +43,17 @@ class UpdateDialog(QDialog):
         self._update_btn.setVisible(False)
         self._update_btn.clicked.connect(self._launch)
 
+        self._restart_btn = QPushButton("Перезапустить приложение")
+        self._restart_btn.setVisible(False)
+        self._restart_btn.clicked.connect(self._restart)
+
         self._buttons = QDialogButtonBox(QDialogButtonBox.Close)
         self._buttons.rejected.connect(self.reject)
 
         layout = QVBoxLayout(self)
         layout.addWidget(self._label)
         layout.addWidget(self._update_btn)
+        layout.addWidget(self._restart_btn)
         layout.addWidget(self._buttons)
 
         self._thread = _CheckThread(self._updater)
@@ -62,5 +71,18 @@ class UpdateDialog(QDialog):
         if err:
             self._label.setText(f"Ошибка: {err}")
             return
-        self._label.setText("Обновление запущено в терминале.")
+        self._label.setText(
+            "Обновление запущено в терминале.\n\n"
+            "После завершения нажмите «Перезапустить приложение»."
+        )
         self._update_btn.setVisible(False)
+        self._restart_btn.setVisible(True)
+
+    def _restart(self):
+        client = DaemonClient()
+        if client.is_running():
+            try:
+                client.reload()
+            except Exception:
+                pass
+        os.execv(sys.executable, [sys.executable] + sys.argv)
