@@ -23,6 +23,8 @@ def _request(method: str, path: str, body: dict | None = None) -> Any:
     try:
         with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
             return json.loads(resp.read().decode())
+    except KeyboardInterrupt:
+        raise
     except (urllib.error.URLError, OSError, TimeoutError) as e:
         raise DaemonUnavailable(
             f"Демон недоступен ({e}). Убедитесь, что zapretd запущен."
