@@ -95,7 +95,7 @@ def download_nfqws(paths, version, progress_cb=None) -> str:
             raise DownloadError(
                 f"nfqws не найден в архиве для платформы {platform}"
             )
-        os.chmod(paths.nfqws_bin, os.stat(paths.nfqws_bin).st_mode | stat.S_IXUSR)
+        os.chmod(paths.nfqws_bin, os.stat(paths.nfqws_bin).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
         return tag
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
@@ -184,7 +184,7 @@ def _prepare_user_lists(paths) -> None:
             shutil.copy2(src, dst)
 
 def has_nfqws(paths) -> bool:
-    return paths.nfqws_bin.is_file() and os.access(paths.nfqws_bin, os.X_OK)
+    return paths.nfqws_bin.is_file()
 
 def has_strategies(paths) -> bool:
     if not paths.strategies_dir.is_dir():

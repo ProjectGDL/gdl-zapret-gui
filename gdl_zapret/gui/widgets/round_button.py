@@ -223,7 +223,7 @@ class RoundButton(QAbstractButton):
             icon = QIcon.fromTheme("media-playback-start")
             icon_size = int(_BTN_SIZE * 0.28)
             if not icon.isNull():
-                p.drawPixmap(int(cx - icon_size / 2), int(cy - icon_size / 2),
+                p.drawPixmap(int(cx - icon_size / 2) + 3, int(cy - icon_size / 2),
                              _white_icon_pixmap(icon, icon_size))
 
         label = "Остановить" if self._running else "Запустить"
