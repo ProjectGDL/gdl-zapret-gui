@@ -75,6 +75,7 @@ class SettingsDialog(QDialog):
 
         self.strategy = QComboBox()
         self.strategy.addItem("загрузка…", None)
+        self.strategy.setMinimumWidth(260)
         self.strategy.setEnabled(False)
 
         self.gamefilter_tcp = QCheckBox("GameFilter TCP (порты 1024-65535)")
@@ -178,4 +179,3 @@ class SettingsDialog(QDialog):
     def reject(self):
         self._stop_loader()
         super().reject()
-
